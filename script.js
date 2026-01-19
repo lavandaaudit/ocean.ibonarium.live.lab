@@ -1,3 +1,4 @@
+/* Ibonarium Ocean Radar v4.1 (Stable) */
 const STATE = {
     map: null,
     layers: {},
@@ -8,12 +9,13 @@ const STATE = {
     analytics: {
         waves: [], wind: [], pressure: [], temp: [], uv: []
     },
-    chart: null,
-    shipInterval: null
+    chart: null
 };
 
-window.onload = () => {
+// Start System
+window.addEventListener('load', () => {
     try {
+        console.log("Ibonarium Ocean System: Starting...");
         initMap();
         initChart();
         loadCycle();
@@ -21,10 +23,14 @@ window.onload = () => {
         setupListeners();
     } catch (e) {
         console.error("Critical Init Error:", e);
+        document.body.innerHTML += `<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:red;background:black;padding:20px;z-index:9999">SYSTEM ERROR: ${e.message}</div>`;
     }
-};
+});
 
 function initMap() {
+    // Initialize Leaflet Map
+    if (!document.getElementById('map')) return;
+
     STATE.map = L.map('map', {
         zoomControl: false,
         attributionControl: false,
@@ -36,15 +42,19 @@ function initMap() {
 
     L.control.zoom({ position: 'bottomright' }).addTo(STATE.map);
 
-    // Base: Dark Matter
+    // DARK MATTER BASEMAP (CartoDB)
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         subdomains: 'abcd', maxZoom: 19
     }).addTo(STATE.map);
+
+    console.log("Map Initialized");
 }
 
 function initChart() {
-    const ctx = document.getElementById('oceanChart').getContext('2d');
-    STATE.chart = new Chart(ctx, {
+    const ctx = document.getElementById('oceanChart');
+    if (!ctx) return;
+
+    STATE.chart = new Chart(ctx.getContext('2d'), {
         type: 'line',
         data: {
             labels: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'],
@@ -83,20 +93,17 @@ function setupListeners() {
 
 async function loadCycle() {
     try {
-        console.log("System Startup...");
         const feed = document.getElementById('alert-feed');
         if (feed) feed.innerHTML = '';
 
         addAlert("SYSTEM STARTUP: Calibrating sensors...");
 
-        // 0. SATELLITE (Instant)
-        try {
-            updateSatellitePass();
-        } catch (e) { console.error("Sat Error", e); }
+        // 0. SATELLITE (Instant Check)
+        updateSatellitePass();
 
         // 1. WAVE DYNAMICS (Physics)
         updateStatus("Loading Wave Dynamics...", "cyan");
-        setupWaves(); // Async
+        setupWaves(); // Async promises
 
         // 2. SST (Thermal)
         setupSST();
@@ -105,30 +112,18 @@ async function loadCycle() {
         updateStatus("Analyzing Global Winds...", "blue");
         setupWindOcean();
 
-        // 4. PRESSURE (MSLP)
+        // 4. PRESSURE, SALINITY, SEA LEVEL, CHLORO, UV, RADIATION
         setupPressure();
-
-        // 5. SALINITY (Chemistry)
         setupSalinity();
-
-        // 6. SEA LEVEL (Altimetry)
         setupSeaLevel();
-
-        // 7. BIOSPHERE
         setupChlorophyll();
-
-        // 8. UV (Solar Radiation)
         setupUV();
-
-        // 9. PROFESSIONAL METRICS v3
         setupRadiation();
         setupThermocline();
 
         updateStatus("OCEAN OBSERVATION ACTIVE", "green");
-        const updateEl = document.getElementById('last-update');
-        if (updateEl) updateEl.innerText = new Date().toLocaleTimeString();
 
-        // Default Active Layers
+        // Default Active Layers (Delayed slightly to allow rendering)
         setTimeout(() => {
             toggleLayer('waves');
             toggleLayer('wind');
@@ -179,7 +174,6 @@ async function setupWaves() {
 
     try {
         const results = await Promise.all(promises);
-        if (!STATE.analytics) STATE.analytics = {};
         STATE.analytics.waves = [];
 
         results.forEach(res => {
@@ -192,22 +186,20 @@ async function setupWaves() {
             if (h > 3) color = '#ffaa00';
             if (h > 6) color = '#ff3333';
 
+            // Create Visual Marker
             markers.push(L.circleMarker([res.lat, res.lon], {
                 radius: 5 + (h || 0),
                 fillColor: color, color: '#fff', weight: 1, fillOpacity: 0.7
-            }).bindPopup(`
-                <b>🌊 ${res.name}</b><br>
-                Wave: <b>${h} m</b> | Period: <b>${p} s</b>
-            `));
+            }).bindPopup(`<b>🌊 ${res.name}</b><br>Wave: <b>${h} m</b><br>Period: <b>${p} s</b>`));
         });
 
         STATE.layers.waves = L.layerGroup(markers);
-        console.log(`✅ Waves: Loaded ${markers.length}`);
         updateAnalyticsUI();
     } catch (e) { console.error("Waves Error", e); }
 }
 
 async function setupWindOcean() {
+    // Generate sparse grid points
     const points = [];
     for (let lat = -50; lat <= 60; lat += 20) {
         for (let lon = -160; lon <= 160; lon += 40) points.push({ lat, lon });
@@ -222,7 +214,6 @@ async function setupWindOcean() {
         const results = Array.isArray(data) ? data : [data];
         const markers = [];
 
-        if (!STATE.analytics) STATE.analytics = {};
         STATE.analytics.wind = [];
         STATE.analytics.pressure = [];
 
@@ -230,24 +221,18 @@ async function setupWindOcean() {
             if (!d || !d.current) return;
             const s = d.current.wind_speed_10m;
             const dir = d.current.wind_direction_10m;
-            const p = d.current.pressure_msl; // Use MSL Pressure
+            const p = d.current.pressure_msl;
 
             STATE.analytics.wind.push(s);
             STATE.analytics.pressure.push(p);
 
-            const arrow = `<svg width="24" height="24" viewBox="0 0 24 24" style="transform:rotate(${dir}deg)">
-                <path d="M12 2L15 10L12 8L9 10Z" fill="#66ccff"/>
-                <path d="M12 8L12 22" stroke="#66ccff" stroke-width="2"/>
-            </svg>`;
+            const arrow = `<svg width="24" height="24" viewBox="0 0 24 24" style="transform:rotate(${dir}deg)"><path d="M12 2L15 10L12 8L9 10Z" fill="#66ccff"/><path d="M12 8L12 22" stroke="#66ccff" stroke-width="2"/></svg>`;
             const icon = L.divIcon({ html: arrow, className: 'wind-icon', iconSize: [24, 24] });
-            markers.push(L.marker([d.latitude, d.longitude], { icon }).bindPopup(`
-                <b>WIND</b><br>${s} km/h <br>${dir}°
-            `));
+            markers.push(L.marker([d.latitude, d.longitude], { icon }).bindPopup(`<b>WIND</b><br>${s} km/h<br>${dir}°`));
         });
 
         STATE.layers.wind = L.layerGroup(markers);
-        setupPressureFromData(results); // Reuse data
-        console.log(`✅ Wind: Loaded ${markers.length}`);
+        setupPressureFromData(results); // Reuse data for pressure layer
         updateAnalyticsUI();
     } catch (e) { console.warn("Wind fetch failed", e); }
 }
@@ -258,8 +243,8 @@ function setupPressureFromData(data) {
         if (!d.current) return;
         const p = d.current.pressure_msl;
         let color = '#fff';
-        if (p < 1000) color = '#ffaa00';
-        if (p < 980) color = '#ff3333';
+        if (p < 1000) color = '#ffaa00'; // Low pressure warning
+        if (p < 980) color = '#ff3333';  // Storm warning
         markers.push(L.circleMarker([d.latitude, d.longitude], {
             radius: 3, color: color, fillOpacity: 0.5
         }).bindPopup(`<b>PRESSURE</b><br>${p} hPa`));
@@ -267,9 +252,7 @@ function setupPressureFromData(data) {
     STATE.layers.pressure = L.layerGroup(markers);
 }
 
-function setupPressure() {
-    // Handled by wind setup to save API calls
-}
+function setupPressure() { /* Placeholder - data comes from Wind API */ }
 
 async function setupSalinity() {
     const buoys = [
@@ -304,20 +287,24 @@ function setupSeaLevel() {
 }
 
 async function setupUV() {
+    // Sparse global grid
+    constpoints = [];
+    const lats = "0,20,-20"; // Simplified for robust fetch
+    const lons = "0,0,0";
+    // We will do a robust small fetch for UV to avoid huge URLs
+    // Actually, let's just stick to the previous loop but be careful
     const points = [];
-    for (let lat = -40; lat <= 40; lat += 20) {
+    for (let lat = -40; lat <= 40; lat += 40) {
         for (let lon = -120; lon <= 120; lon += 60) points.push({ lat, lon });
     }
-    const lats = points.map(p => p.lat).join(',');
-    const lons = points.map(p => p.lon).join(',');
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&current=uv_index`;
+    const latsStr = points.map(p => p.lat).join(',');
+    const lonsStr = points.map(p => p.lon).join(',');
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latsStr}&longitude=${lonsStr}&current=uv_index`;
 
     try {
         const res = await fetch(url);
         const data = await res.json();
         const results = Array.isArray(data) ? data : [data];
-
-        if (!STATE.analytics) STATE.analytics = {};
         STATE.analytics.uv = [];
 
         results.forEach(d => {
@@ -327,8 +314,6 @@ async function setupUV() {
         updateAnalyticsUI();
     } catch (e) { }
 }
-
-// --- PROFESSIONAL METRICS ---
 
 function setupRadiation() {
     const sensors = [
@@ -348,9 +333,7 @@ function setupRadiation() {
     STATE.layers.radiation = L.layerGroup(markers);
 }
 
-function setupThermocline() {
-    STATE.analytics.thermocline = "Stable Stratification";
-}
+function setupThermocline() { /* Simulation placeholder */ }
 
 function updateSatellitePass() {
     const el = document.createElement('div');
@@ -371,24 +354,24 @@ function updateAnalyticsUI() {
     const press = STATE.analytics.pressure || [];
     const uv = STATE.analytics.uv || [];
 
-    // Safety: Filter out invalid sensor data (nulls or zeros where impossible)
-    const cleanWaves = waves.filter(w => w !== null && w !== undefined && w >= 0);
-    const cleanWind = wind.filter(w => w !== null && w !== undefined && w >= 0);
-    const cleanPress = press.filter(p => p !== null && p !== undefined && p > 850);
-    const cleanUV = uv.filter(u => u !== null && u !== undefined && u >= 0);
+    // Filter Bad Data
+    const cleanWaves = waves.filter(w => w !== null && w >= 0);
+    const cleanWind = wind.filter(w => w !== null && w >= 0);
+    const cleanPress = press.filter(p => p !== null && p > 850);
+    const cleanUV = uv.filter(u => u !== null && u >= 0);
 
     const avgWave = cleanWaves.length > 0 ? cleanWaves.reduce((a, b) => a + b, 0) / cleanWaves.length : 0;
     const maxWind = cleanWind.length > 0 ? Math.max(...cleanWind) : 0;
     const minPress = cleanPress.length > 0 ? Math.min(...cleanPress) : 1013;
     const maxUV = cleanUV.length > 0 ? Math.max(...cleanUV) : 0;
 
-    // Calibrated Index Calculation (0-10)
+    // Stress Formula
     let stress = (avgWave / 3) + (maxWind / 60) + ((1015 - minPress) / 25);
     stress += (maxUV / 12) * 1.5;
-
     if (stress > 10) stress = 10;
     if (stress < 0) stress = 0;
 
+    // Update Chart
     if (STATE.chart && STATE.chart.data.datasets && STATE.chart.data.datasets[0]) {
         STATE.chart.data.datasets[0].data = [
             stress * 8, avgWave * 10, maxWind / 2, (1013 - minPress) * 5,
@@ -397,6 +380,7 @@ function updateAnalyticsUI() {
         STATE.chart.update();
     }
 
+    // Update UI Elements
     const valEl = document.getElementById('stress-value');
     const barEl = document.getElementById('danger-progress');
     const statusEl = document.getElementById('stress-status');
@@ -412,8 +396,6 @@ function updateAnalyticsUI() {
     if (maxWind > 40) addAlert(`💨 GALE FORCE: ${maxWind} km/h`);
     if (minPress < 990) addAlert(`📉 LOW PRESSURE: ${minPress} hPa`);
     if (avgWave > 3.5) addAlert(`🌊 HIGH SEAS: ${avgWave.toFixed(1)}m`);
-    if (maxUV > 8) addAlert(`☀️ EXTREME UV: ${maxUV}`);
-    if (Math.random() > 0.95) addAlert(`<span style="font-size:0.5rem; opacity:0.5">SYSTEM CHECK: Sensors active...</span>`);
 }
 
 function addAlert(msg) {
@@ -422,3 +404,31 @@ function addAlert(msg) {
     const item = document.createElement('div');
     item.className = 'alert-item';
     item.innerHTML = `<span style="color:var(--text-dim)">${new Date().toLocaleTimeString()}</span> ${msg}`;
+    feed.prepend(item);
+    if (feed.children.length > 5) feed.lastChild.remove();
+}
+
+function toggleLayer(key) {
+    if (!STATE.layers[key]) return;
+    STATE.activeStates[key] = !STATE.activeStates[key];
+    const btn = document.getElementById('btn-' + key);
+    if (STATE.activeStates[key]) {
+        STATE.map.addLayer(STATE.layers[key]);
+        if (btn) btn.classList.add('active');
+    } else {
+        STATE.map.removeLayer(STATE.layers[key]);
+        if (btn) btn.classList.remove('active');
+    }
+}
+
+function updateStatus(msg, color) {
+    const el = document.getElementById('status-detailed');
+    if (el) el.innerHTML = `<span style="color:var(--accent-${color})">${msg}</span>`;
+}
+
+function startClock() {
+    setInterval(() => {
+        const el = document.getElementById('last-update');
+        if (el) el.innerText = new Date().toLocaleTimeString();
+    }, 60000);
+}
