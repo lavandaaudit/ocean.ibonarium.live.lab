@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+    <title>IBONARIUM // OCEAN RADAR</title>
+
+    <!-- Meta -->
+    <meta name="description"
+        content="Глобальний моніторинг океану в реальному часі. Температура, біорізноманіття, течії, хвилі.">
+    <meta name="theme-color" content="#05070a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+
+    <!-- External Resources -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Specific Ocean Overrides */
+        .threat-box {
+            background: rgba(0, 114, 255, 0.05);
+            border: 1px solid rgba(0, 114, 255, 0.2);
+        }
+
+        #danger-progress {
+            background: var(--accent-blue);
+            box-shadow: 0 0 5px var(--accent-blue);
+        }
+
+        .temp-scale {
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(to right, #0072ff, #39ff14, #ffe600, #ff3333);
+            margin-top: 5px;
+            border-radius: 2px;
+        }
+
+        /* Right Info Panel */
+        .info-panel {
+            grid-column: 2;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 320px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            transform: translateX(0);
+            transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .info-panel.hidden {
+            transform: translateX(120%);
+            display: none;
+            /* simple hide */
+        }
+
+        .close-btn {
+            align-self: flex-end;
+            background: none;
+            border: none;
+            color: var(--accent-cyan);
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+
+        .species-img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 10px;
+        }
+
+        .species-title {
+            font-size: 1.2rem;
+            color: var(--accent-green);
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .species-sci {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            font-style: italic;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .species-desc {
+            font-size: 0.9rem;
+            line-height: 1.5;
+            color: #ddd;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="scanline"></div>
+
+    <div id="map"></div>
+
+    <div class="ui-container">
+        <!-- Sidebar Left: All Controls & Info -->
+        <header class="panel">
+            <div class="logo-block">
+                <h1>Ibonarium <span class="version" style="background:rgba(0,114,255,0.2); color:#0072ff;">OCEAN</span>
+                </h1>
+                <div class="subtitle">REAL-TIME MARINE ANALYTICS</div>
+            </div>
+
+            <div class="controls-panel">
+                <div class="control-group-title">ОКЕАНОГРАФІЯ</div>
+
+                <div class="layers-grid">
+                    <button class="toggle-btn" id="btn-sst" onclick="toggleLayer('sst')">
+                        <i data-lucide="thermometer" style="color: var(--accent-red);"></i>
+                        <span>Температура (SST)</span>
+                        <div class="indicator"></div>
+                    </button>
+
+                    <button class="toggle-btn" id="btn-waves" onclick="toggleLayer('waves')">
+                        <i data-lucide="waves" style="color: var(--accent-cyan);"></i>
+                        <span>Хвилі (Waves)</span>
+                        <div class="indicator"></div>
+                    </button>
+
+                    <button class="toggle-btn" id="btn-wind" onclick="toggleLayer('wind')">
+                        <i data-lucide="wind" style="color: #66ccff;"></i>
+                        <span>Вітер (Wind)</span>
+                        <div class="indicator"></div>
+                    </button>
+
+                    <button class="toggle-btn" id="btn-pressure" onclick="toggleLayer('pressure')">
+                        <i data-lucide="gauge" style="color: #ffaa00;"></i>
+                        <span>Тиск (Pressure)</span>
+                        <div class="indicator"></div>
+                    </button>
+
+                    <button class="toggle-btn" id="btn-salinity" onclick="toggleLayer('salinity')">
+                        <i data-lucide="droplets" style="color: #39ff14;"></i>
+                        <span>Потоки (Flow)</span>
+                        <div class="indicator"></div>
+                    </button>
+
+                    <button class="toggle-btn" id="btn-sealevel" onclick="toggleLayer('sealevel')">
+                        <i data-lucide="arrow-up-down" style="color: #fff;"></i>
+                        <span>Рівень моря (SLA)</span>
+                        <div class="indicator"></div>
+                    </button>
+
+                    <button class="toggle-btn" id="btn-radiation" onclick="toggleLayer('radiation')">
+                        <i data-lucide="radio" style="color: #ffff00;"></i>
+                        <span>Радіація (Beta)</span>
+                        <div class="indicator"></div>
+                    </button>
+                </div>
+
+                <div class="control-group-title">АНАЛІТИКА ОКЕАНУ</div>
+                <div class="chart-container" style="height: 110px;">
+                    <canvas id="oceanChart"></canvas>
+                </div>
+
+                <div class="threat-box">
+                    <div class="threat-header">
+                        <span>STRESS INDEX: <b style="color:var(--accent-blue)" id="stress-status">NORMAL</b></span>
+                        <span id="stress-value">2.4</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div id="danger-progress"></div>
+                    </div>
+                </div>
+
+                <!-- Live Alert Feed -->
+                <div id="alert-feed" class="alert-feed">
+                    <div class="alert-item"><span style="color:#666">System</span> Initializing analytics...</div>
+                </div>
+            </div>
+
+            <div class="system-info-compact">
+                <div class="coord-display">
+                    <span id="lat">00.00</span> | <span id="lon">00.00</span>
+                </div>
+                <!-- New Professional Metrics -->
+
+
+                <div class="status-row" style="margin-top:6px;">
+                    <span>STATUS: <b id="net-status" style="color:var(--accent-green)">LIVE</b></span>
+                    <span>UPD: <b id="last-update">..:..</b></span>
+                </div>
+                <div class="status-msg" id="status-detailed">Ініціалізація систем...</div>
+            </div>
+        </header>
+
+        <!-- Right Info Panel (Initially Hidden) -->
+        <div id="info-panel" class="panel info-panel hidden">
+            <button class="close-btn" onclick="closeInfoPanel()">
+                <i data-lucide="x"></i>
+            </button>
+            <div class="info-content" id="info-content-body">
+                <!-- Dynamic Content Here -->
+                <div class="loading-spinner">Отримання даних...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-providers@latest/leaflet-providers.js"></script>
+    <script src="script.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+
+</html>
